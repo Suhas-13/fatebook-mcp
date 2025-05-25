@@ -1,6 +1,6 @@
 # Fatebook MCP Server
 
-An MCP (Model Context Protocol) server that enables AI assistants to interact with your Fatebook predictions. This allows you to easily list, search, and update your predictions using natural language.
+An MCP (Model Context Protocol) server that enables AI assistants to interact with your Fatebook predictions. This allows you to easily list and update your predictions using natural language.
 
 ## Features
 
@@ -47,19 +47,11 @@ python server.py
    - Automatically filters to show only unresolved predictions
    - Shows only your own predictions (not public ones)
 
-2. **list_predictions_filtered**: List predictions with advanced filtering
-   - Optional parameters:
-     - `limit` (default: 20)
-     - `resolved` (true/false) - show only resolved predictions
-     - `unresolved` (true/false) - show only unresolved predictions  
-     - `show_all_public` (true/false) - include all public predictions
-     - `search_string` - search for predictions containing text
-
-3. **update_prediction**: Update a prediction probability by ID
+2. **update_prediction**: Update a prediction probability by ID
    - Required parameters: `question_id`, `new_probability` (0.0 to 1.0)
    - Optional parameter: `comment` (explanation for the update)
 
-4. **get_prediction_details**: Get detailed information about a specific prediction
+3. **get_prediction_details**: Get detailed information about a specific prediction
    - Required parameter: `question_id`
 
 ### Example Usage
@@ -67,7 +59,6 @@ python server.py
 You can use this MCP server with Claude Desktop or other MCP-compatible AI assistants:
 
 - "List my predictions"
-- "Show my predictions about AI"
 - "Update my LID house prediction to 35%"
 - "Show me details for my prediction about St Andrews"
 

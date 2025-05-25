@@ -3,7 +3,7 @@
 Fatebook MCP Server
 
 An MCP server that provides tools to interact with Fatebook predictions.
-Allows listing, searching, and updating predictions with natural language descriptions.
+Allows listing and updating predictions with natural language descriptions.
 """
 
 import asyncio
@@ -55,15 +55,9 @@ class FatebookClient:
         limit: int = 50,
         resolved: Optional[bool] = None,
         unresolved: Optional[bool] = None,
-        show_all_public: bool = False,
-        search_string: Optional[str] = None,
-        filter_tag_ids: Optional[List[str]] = None,
-        filter_tournament_id: Optional[str] = None,
-        resolving_soon: bool = False,
-        ready_to_resolve: bool = False,
-        sort_earliest_first: bool = False
+        show_all_public: bool = False
     ) -> List[Dict[str, Any]]:
-        """Get list of questions from Fatebook with advanced filtering"""
+        """Get list of questions from Fatebook"""
         url = f"{FATEBOOK_BASE_URL}/v0/getQuestions"
         params = {"apiKey": self.api_key, "limit": limit}
         
@@ -73,19 +67,6 @@ class FatebookClient:
             params["unresolved"] = "true" if unresolved else "false"
         if show_all_public:
             params["showAllPublic"] = "true"
-        if search_string:
-            params["searchString"] = search_string
-        if filter_tag_ids:
-            for tag_id in filter_tag_ids:
-                params.setdefault("filterTagIds", []).append(tag_id)
-        if filter_tournament_id:
-            params["filterTournamentId"] = filter_tournament_id
-        if resolving_soon:
-            params["resolvingSoon"] = "true"
-        if ready_to_resolve:
-            params["readyToResolve"] = "true"
-        if sort_earliest_first:
-            params["sortEarliestFirst"] = "true"
         
         try:
             response = await self.client.get(url, params=params)
@@ -202,38 +183,6 @@ async def handle_list_tools() -> List[Tool]:
                 "required": ["question_id"]
             },
         ),
-        Tool(
-            name="list_predictions_filtered",
-            description="List predictions with advanced filtering options",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of predictions to return (default: 20)",
-                        "default": 20
-                    },
-                    "resolved": {
-                        "type": "boolean",
-                        "description": "Filter to only resolved predictions"
-                    },
-                    "unresolved": {
-                        "type": "boolean", 
-                        "description": "Filter to only unresolved predictions"
-                    },
-                    "show_all_public": {
-                        "type": "boolean",
-                        "description": "Show all public predictions (not just yours)",
-                        "default": False
-                    },
-                    "search_string": {
-                        "type": "string",
-                        "description": "Search for predictions containing this text"
-                    }
-                },
-                "required": []
-            },
-        ),
     ]
 
 @server.call_tool()
@@ -254,33 +203,45 @@ async def handle_call_tool(name: str, arguments: dict) -> List[TextContent]:
         
         result = f"Found {len(questions)} predictions:\n\n"
         for i, q in enumerate(questions, 1):
-            title = q.get("title", "No title")
-            question_id = q.get("id", "No ID")
-            created_date = q.get("createdDate", "Unknown date")
-            resolve_by = q.get("resolveBy", "No resolution date")
-            
-            # Get author information
-            user = q.get("user", {})
-            author_name = user.get("name", "Unknown author")
-            
-            # Get latest forecast
-            forecasts = q.get("forecasts", [])
-            latest_forecast = "No forecast"
-            latest_forecaster = ""
-            if forecasts:
-                latest_forecast_data = forecasts[-1]
-                forecast_val = latest_forecast_data.get('forecast', 0)
-                latest_forecast = format_forecast(forecast_val)
-                # Get who made the latest forecast
-                if 'user' in latest_forecast_data:
-                    latest_forecaster = f" (by {latest_forecast_data['user'].get('name', 'unknown')})"
-            
-            result += f"{i}. **{title}**\n"
-            result += f"   Author: {author_name}\n"
-            result += f"   ID: {question_id}\n"
-            result += f"   Latest forecast: {latest_forecast}{latest_forecaster}\n"
-            result += f"   Resolves by: {resolve_by}\n"
-            result += f"   Created: {created_date}\n\n"
+            try:
+                # Skip if question is None
+                if q is None:
+                    logger.warning(f"Skipping None question at index {i}")
+                    continue
+                    
+                title = q.get("title", "No title") if q else "No title"
+                question_id = q.get("id", "No ID") if q else "No ID"
+                created_date = q.get("createdDate", "Unknown date") if q else "Unknown date"
+                resolve_by = q.get("resolveBy", "No resolution date") if q else "No resolution date"
+                
+                # Get author information
+                user = q.get("user", {}) if q else {}
+                author_name = user.get("name", "Unknown author") if user else "Unknown author"
+                
+                # Get latest forecast
+                forecasts = q.get("forecasts", []) if q else []
+                latest_forecast = "No forecast"
+                latest_forecaster = ""
+                if forecasts and len(forecasts) > 0:
+                    latest_forecast_data = forecasts[-1]
+                    if latest_forecast_data:
+                        forecast_val = latest_forecast_data.get('forecast', 0)
+                        latest_forecast = format_forecast(forecast_val)
+                        # Get who made the latest forecast
+                        if 'user' in latest_forecast_data and latest_forecast_data['user']:
+                            forecaster = latest_forecast_data['user'].get('name', 'unknown')
+                            latest_forecaster = f" (by {forecaster})"
+                
+                result += f"{i}. **{title}**\n"
+                result += f"   Author: {author_name}\n"
+                result += f"   ID: {question_id}\n"
+                result += f"   Latest forecast: {latest_forecast}{latest_forecaster}\n"
+                result += f"   Resolves by: {resolve_by}\n"
+                result += f"   Created: {created_date}\n\n"
+            except Exception as e:
+                logger.error(f"Error processing question {i}: {e}")
+                logger.error(f"Question data: {q}")
+                continue
         
         result += "\n💡 **Note**: This shows only the latest forecast for each prediction. "
         result += "Use `get_prediction_details` to see all forecasts from different users."
@@ -357,75 +318,15 @@ async def handle_call_tool(name: str, arguments: dict) -> List[TextContent]:
         if forecasts:
             result += f"\nForecast history ({len(forecasts)} forecasts, showing last 5):\n"
             for i, forecast in enumerate(forecasts[-5:], 1):  # Show last 5 forecasts
+                if forecast is None:
+                    continue
                 forecast_val = forecast.get("forecast", 0)
                 forecast_str = format_forecast(forecast_val)
                 forecast_date = forecast.get("createdDate", "Unknown date")
                 forecaster_name = "Unknown"
-                if 'user' in forecast:
+                if 'user' in forecast and forecast['user']:
                     forecaster_name = forecast['user'].get('name', 'Unknown')
                 result += f"  {i}. {forecast_str} by {forecaster_name} on {forecast_date}\n"
-        
-        return [TextContent(type="text", text=result)]
-    
-    elif name == "list_predictions_filtered":
-        limit = arguments.get("limit", 20)
-        resolved = arguments.get("resolved")
-        unresolved = arguments.get("unresolved")
-        show_all_public = arguments.get("show_all_public", False)
-        search_string = arguments.get("search_string")
-        
-        questions = await fatebook_client.get_questions_with_params(
-            limit=limit,
-            resolved=resolved,
-            unresolved=unresolved,
-            show_all_public=show_all_public,
-            search_string=search_string
-        )
-        
-        if not questions:
-            filters_used = []
-            if resolved:
-                filters_used.append("resolved")
-            if unresolved:
-                filters_used.append("unresolved")
-            if show_all_public:
-                filters_used.append("public")
-            if search_string:
-                filters_used.append(f"search='{search_string}'")
-            filter_text = f" with filters: {', '.join(filters_used)}" if filters_used else ""
-            return [TextContent(type="text", text=f"No predictions found{filter_text}.")]
-        
-        result = f"Found {len(questions)} predictions:\n\n"
-        for i, q in enumerate(questions, 1):
-            title = q.get("title", "No title")
-            question_id = q.get("id", "No ID")
-            created_date = q.get("createdDate", "Unknown date")
-            resolve_by = q.get("resolveBy", "No resolution date")
-            resolved_status = q.get("resolved", False)
-            
-            # Get author information
-            user = q.get("user", {})
-            author_name = user.get("name", "Unknown author")
-            
-            # Get latest forecast
-            forecasts = q.get("forecasts", [])
-            latest_forecast = "No forecast"
-            latest_forecaster = ""
-            if forecasts:
-                latest_forecast_data = forecasts[-1]
-                forecast_val = latest_forecast_data.get('forecast', 0)
-                latest_forecast = format_forecast(forecast_val)
-                # Get who made the latest forecast
-                if 'user' in latest_forecast_data:
-                    latest_forecaster = f" (by {latest_forecast_data['user'].get('name', 'unknown')})"
-            
-            result += f"{i}. **{title}**\n"
-            result += f"   Author: {author_name}\n"
-            result += f"   ID: {question_id}\n"
-            result += f"   Latest forecast: {latest_forecast}{latest_forecaster}\n"
-            result += f"   Status: {'Resolved' if resolved_status else 'Open'}\n"
-            result += f"   Resolves by: {resolve_by}\n"
-            result += f"   Created: {created_date}\n\n"
         
         return [TextContent(type="text", text=result)]
     
